@@ -27,16 +27,18 @@ contract EthSigAuthenticator is Authenticator, SignatureVerifier {
         address target,
         bytes4 functionSelector,
         bytes calldata data
-    ) external {
+    ) external payable {
         if (functionSelector == PROPOSE_SELECTOR) {
             _verifyProposeSig(v, r, s, salt, target, data);
+            _call(target, functionSelector, data);
         } else if (functionSelector == VOTE_SELECTOR) {
             _verifyVoteSig(v, r, s, target, data);
+            _callWithValue(target, functionSelector, data, msg.value);
         } else if (functionSelector == UPDATE_PROPOSAL_SELECTOR) {
             _verifyUpdateProposalSig(v, r, s, salt, target, data);
+            _call(target, functionSelector, data);
         } else {
             revert InvalidFunctionSelector();
         }
-        _call(target, functionSelector, data);
     }
 }

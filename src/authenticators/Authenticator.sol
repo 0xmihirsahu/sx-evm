@@ -23,4 +23,18 @@ abstract contract Authenticator {
             }
         }
     }
+
+    /// @dev Forwards a call to the target contract, attaching ETH value (used for payable vote).
+    function _callWithValue(address target, bytes4 functionSelector, bytes memory data, uint256 value) internal {
+        // solhint-disable-next-line avoid-low-level-calls
+        (bool success, ) = target.call{ value: value }(abi.encodePacked(functionSelector, data));
+        if (!success) {
+            // solhint-disable-next-line no-inline-assembly
+            assembly {
+                let returnDataSize := returndatasize()
+                returndatacopy(0, 0, returnDataSize)
+                revert(0, returnDataSize)
+            }
+        }
+    }
 }

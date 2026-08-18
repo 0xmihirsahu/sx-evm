@@ -3,9 +3,10 @@ cache
 node_modules
 .yarn
 .env
-
+.DS_Store
 # broadcasts
 /broadcast/
 lcov.info
 
 /deployments/test.json
+inco-skill

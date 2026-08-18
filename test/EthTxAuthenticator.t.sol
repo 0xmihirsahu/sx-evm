@@ -84,8 +84,9 @@ contract EthTxAuthenticatorTest is SpaceTest {
         uint256 proposalId = _createProposal(author, proposalMetadataURI, executionStrategy, new bytes(0));
 
         bytes memory encryptedChoice = fakePrepareEuint256Ciphertext(1, voter, address(space));
+        vm.deal(voter, incoFee);
         vm.prank(voter);
-        ethTxAuth.authenticate(
+        ethTxAuth.authenticate{ value: incoFee }(
             address(space),
             VOTE_SELECTOR,
             abi.encode(voter, proposalId, encryptedChoice, userVotingStrategies, voteMetadataURI)
@@ -151,8 +152,9 @@ contract EthTxAuthenticatorTest is SpaceTest {
         // Fast forward and ensure everything is still working correctly
         vm.roll(vm.getBlockNumber() + votingDelay);
         bytes memory encryptedChoice = fakePrepareEuint256Ciphertext(1, voter, address(space));
+        vm.deal(voter, incoFee);
         vm.prank(voter);
-        ethTxAuth.authenticate(
+        ethTxAuth.authenticate{ value: incoFee }(
             address(space),
             VOTE_SELECTOR,
             abi.encode(voter, proposalId, encryptedChoice, userVotingStrategies, voteMetadataURI)

@@ -1,0 +1,53 @@
+{
+  "lib/forge-gas-snapshot": {
+    "rev": "cf34ad1ed0a1f323e77557b9bce420f3385f7400"
+  },
+  "lib/forge-std": {
+    "tag": {
+      "name": "v1.15.0",
+      "rev": "0844d7e1fc5e60d77b68e469bff60265f236c398"
+    }
+  },
+  "lib/herodotus-evm-v2": {
+    "branch": {
+      "name": "feat/fact-registry-redesign",
+      "rev": "91a5128d309e6f263cfaeef8ffb38b719abaa86f"
+    }
+  },
+  "lib/murky": {
+    "tag": {
+      "name": "v0.1.0",
+      "rev": "5feccd1253d7da820f7cccccdedf64471025455d"
+    }
+  },
+  "lib/openzeppelin-contracts": {
+    "tag": {
+      "name": "v4.8.0",
+      "rev": "49c0e4370d0cc50ea6090709e3835a3091e33ee2"
+    }
+  },
+  "lib/openzeppelin-contracts-upgradeable": {
+    "tag": {
+      "name": "v4.8.0",
+      "rev": "65420cb9c943c32eb7e8c9da60183a413d90067a"
+    }
+  },
+  "lib/prb-test": {
+    "tag": {
+      "name": "v0.6.5",
+      "rev": "2ece8755d9afe7d66440ef9ca19b8a9dab40164b"
+    }
+  },
+  "lib/safe-contracts": {
+    "tag": {
+      "name": "v1.3.0",
+      "rev": "186a21a74b327f17fc41217a927dea7064f74604"
+    }
+  },
+  "lib/zodiac": {
+    "tag": {
+      "name": "v4.2.1",
+      "rev": "36d0117b13d82bdedeed2fdafecf33ea01d208d9"
+    }
+  }
+}

@@ -4,6 +4,7 @@ pragma solidity ^0.8.18;
 
 import { Enum } from "@gnosis.pm/safe-contracts/contracts/common/Enum.sol";
 import { IExecutionStrategy } from "src/interfaces/IExecutionStrategy.sol";
+import { DecryptionAttestation } from "@inco/lightning/src/lightning-parts/DecryptionAttester.types.sol";
 
 /// @dev Constants used to replace the `bool` type in mappings for gas efficiency.
 uint256 constant TRUE = 1;
@@ -45,6 +46,22 @@ struct Strategy {
     address addr;
     // The parameters of the strategy.
     bytes params;
+}
+
+/// @notice The revealed, cleartext result of a proposal after voting ends.
+struct ProposalResult {
+    uint256 againstVotes;
+    uint256 forVotes;
+    uint256 abstainVotes;
+    bool passed;
+}
+
+/// @notice An attested decryption of a single vote tally, submitted to finalize a reveal.
+///         Bundled (and passed as a fixed `[3]` array indexed 0=Against, 1=For, 2=Abstain)
+///         so the finalize call stays a single, stack-light parameter.
+struct TallyDecryption {
+    DecryptionAttestation attestation;
+    bytes[] signatures;
 }
 
 /// @notice The data stored for each indexed strategy.

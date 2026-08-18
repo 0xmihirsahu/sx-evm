@@ -6,8 +6,11 @@ import { Authenticator } from "./Authenticator.sol";
 
 /// @title Vanilla Authenticator
 contract VanillaAuthenticator is Authenticator {
-    function authenticate(address target, bytes4 functionSelector, bytes memory data) external {
-        // No authentication is performed.
-        _call(target, functionSelector, data);
+    function authenticate(address target, bytes4 functionSelector, bytes memory data) external payable {
+        if (functionSelector == VOTE_SELECTOR) {
+            _callWithValue(target, functionSelector, data, msg.value);
+        } else {
+            _call(target, functionSelector, data);
+        }
     }
 }

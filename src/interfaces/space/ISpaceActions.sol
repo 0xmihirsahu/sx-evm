@@ -2,8 +2,7 @@
 
 pragma solidity ^0.8.18;
 
-import { IndexedStrategy, Strategy, InitializeCalldata } from "src/types.sol";
-import { DecryptionAttestation } from "@inco/lightning/src/lightning-parts/DecryptionAttester.types.sol";
+import { IndexedStrategy, Strategy, InitializeCalldata, TallyDecryption } from "src/types.sol";
 
 /// @title Space Actions
 /// @notice User focused actions that can be performed on a space.
@@ -52,23 +51,23 @@ interface ISpaceActions {
         bytes calldata ciphertext,
         IndexedStrategy[] calldata userVotingStrategies,
         string calldata metadataURI
-    ) external;
+    ) external payable;
 
-    /// @notice  Executes a proposal after verifying attested decryptions from Inco's TEE covalidator.
+    /// @notice  Grants the caller off-chain decryption access to a proposal's final vote tallies.
+    /// @dev     Only callable after the voting period has ended. The tallies are frozen at this point.
     /// @param   proposalId  The proposal id.
-    /// @param   executionPayload  The execution payload.
-    /// @param   quorumAttestation  The attested decryption proving the quorum result.
-    /// @param   quorumSignatures  The covalidator signatures for the quorum attestation.
-    /// @param   supportAttestation  The attested decryption proving the support result.
-    /// @param   supportSignatures  The covalidator signatures for the support attestation.
-    function tryExecute(
-        uint256 proposalId,
-        bytes calldata executionPayload,
-        DecryptionAttestation memory quorumAttestation,
-        bytes[] memory quorumSignatures,
-        DecryptionAttestation memory supportAttestation,
-        bytes[] memory supportSignatures
-    ) external;
+    function requestReveal(uint256 proposalId) external;
+
+    /// @notice  Finalizes a proposal's result from attested decryptions of its vote tallies.
+    /// @dev     Verifies each attestation, stores cleartext counts, computes pass/fail, and locks the result.
+    /// @param   proposalId  The proposal id.
+    /// @param   tallies  Attested decryptions of the three tallies, indexed 0=Against, 1=For, 2=Abstain.
+    function finalizeReveal(uint256 proposalId, TallyDecryption[3] memory tallies) external;
+
+    /// @notice  Executes a proposal whose result has been revealed and passed.
+    /// @param   proposalId  The proposal id.
+    /// @param   executionPayload  The execution payload (must match the hash stored at proposal creation).
+    function execute(uint256 proposalId, bytes calldata executionPayload) external;
 
     /// @notice  Updates the proposal execution strategy and metadata.
     /// @param   proposalId The id of the proposal to edit.

@@ -19,6 +19,19 @@ contract VoteTest is SpaceTest {
         assertEq(space.voteRegistry(proposalId, author), TRUE);
     }
 
+    function testVoteInsufficientIncoFee() public {
+        uint256 proposalId = _createProposal(author, proposalMetadataURI, executionStrategy, new bytes(0));
+
+        bytes memory ciphertext = fakePrepareEuint256Ciphertext(1, author, address(space));
+        // Forwarding less than the per-vote Inco fee must revert under the voter-pays model.
+        vm.expectRevert(InsufficientIncoFee.selector);
+        vanillaAuthenticator.authenticate{ value: incoFee - 1 }(
+            address(space),
+            VOTE_SELECTOR,
+            abi.encode(author, proposalId, ciphertext, userVotingStrategies, voteMetadataURI)
+        );
+    }
+
     function testVoteInvalidAuth() public {
         uint256 proposalId = _createProposal(author, proposalMetadataURI, executionStrategy, new bytes(0));
 
@@ -41,7 +54,7 @@ contract VoteTest is SpaceTest {
 
         _tryExecute(proposalId, executionStrategy.params);
 
-        vm.expectRevert(abi.encodeWithSelector(ProposalFinalized.selector));
+        vm.expectRevert(abi.encodeWithSelector(VotingPeriodHasEnded.selector));
         _vote(author, proposalId, 1, userVotingStrategies, voteMetadataURI);
     }
 

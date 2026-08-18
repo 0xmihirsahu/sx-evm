@@ -30,17 +30,14 @@ contract CompVotingStrategy is IVotingStrategy {
         uint256 queryBlock = blockNumber - 1;
 
         // Compound-style interface.
-        (bool ok, bytes memory data) = tokenAddress.staticcall(
-            abi.encodeWithSelector(IComp.getPriorVotes.selector, voter, queryBlock)
-        );
+        (bool ok, bytes memory data) =
+            tokenAddress.staticcall(abi.encodeWithSelector(IComp.getPriorVotes.selector, voter, queryBlock));
         if (ok && data.length >= 32) {
             return abi.decode(data, (uint256));
         }
 
         // OZ ERC20Votes interface.
-        (ok, data) = tokenAddress.staticcall(
-            abi.encodeWithSignature("getPastVotes(address,uint256)", voter, queryBlock)
-        );
+        (ok, data) = tokenAddress.staticcall(abi.encodeWithSignature("getPastVotes(address,uint256)", voter, queryBlock));
         if (ok && data.length >= 32) {
             return abi.decode(data, (uint256));
         }

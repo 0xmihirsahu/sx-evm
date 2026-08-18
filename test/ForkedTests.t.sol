@@ -228,54 +228,24 @@ contract ForkedTest is SpaceTest, SigUtils {
     }
 
     function _castSigVotes(uint256 proposalId) internal {
+        // Relayer/sponsor forwards the per-vote Inco fee on the fork (voter-pays model).
+        vm.deal(address(this), 100 ether);
         {
             bytes memory encryptedChoice = fakePrepareEuint256Ciphertext(1, voter, address(space));
             (uint8 v, bytes32 r, bytes32 s) = vm.sign(
                 VOTER_KEY,
-                _getVoteDigest(
-                    address(ethSigAuth),
-                    address(space),
-                    voter,
-                    proposalId,
-                    encryptedChoice,
-                    userVotingStrategies,
-                    ""
-                )
+                _getVoteDigest(address(ethSigAuth), address(space), voter, proposalId, encryptedChoice, userVotingStrategies, "")
             );
-            ethSigAuth.authenticate(
-                v,
-                r,
-                s,
-                0,
-                address(space),
-                VOTE_SELECTOR,
-                abi.encode(voter, proposalId, encryptedChoice, userVotingStrategies, "")
-            );
+            ethSigAuth.authenticate{ value: incoFee }(v, r, s, 0, address(space), VOTE_SELECTOR, abi.encode(voter, proposalId, encryptedChoice, userVotingStrategies, ""));
             processAllOperations();
         }
         {
             bytes memory encryptedChoice = fakePrepareEuint256Ciphertext(1, voter2, address(space));
             (uint8 v, bytes32 r, bytes32 s) = vm.sign(
                 key2,
-                _getVoteDigest(
-                    address(ethSigAuth),
-                    address(space),
-                    voter2,
-                    proposalId,
-                    encryptedChoice,
-                    userVotingStrategies,
-                    ""
-                )
+                _getVoteDigest(address(ethSigAuth), address(space), voter2, proposalId, encryptedChoice, userVotingStrategies, "")
             );
-            ethSigAuth.authenticate(
-                v,
-                r,
-                s,
-                0,
-                address(space),
-                VOTE_SELECTOR,
-                abi.encode(voter2, proposalId, encryptedChoice, userVotingStrategies, "")
-            );
+            ethSigAuth.authenticate{ value: incoFee }(v, r, s, 0, address(space), VOTE_SELECTOR, abi.encode(voter2, proposalId, encryptedChoice, userVotingStrategies, ""));
             processAllOperations();
         }
         {
@@ -283,59 +253,35 @@ contract ForkedTest is SpaceTest, SigUtils {
             string memory meta = "bafkreibv2yjocyotgj2n6awe5z7vqxrzyo72t2ml2ijgj4fgktfpyukuv4";
             (uint8 v, bytes32 r, bytes32 s) = vm.sign(
                 key3,
-                _getVoteDigest(
-                    address(ethSigAuth),
-                    address(space),
-                    voter3,
-                    proposalId,
-                    encryptedChoice,
-                    userVotingStrategies,
-                    meta
-                )
+                _getVoteDigest(address(ethSigAuth), address(space), voter3, proposalId, encryptedChoice, userVotingStrategies, meta)
             );
-            ethSigAuth.authenticate(
-                v,
-                r,
-                s,
-                0,
-                address(space),
-                VOTE_SELECTOR,
-                abi.encode(voter3, proposalId, encryptedChoice, userVotingStrategies, meta)
-            );
+            ethSigAuth.authenticate{ value: incoFee }(v, r, s, 0, address(space), VOTE_SELECTOR, abi.encode(voter3, proposalId, encryptedChoice, userVotingStrategies, meta));
             processAllOperations();
         }
     }
 
     function _castTxVotes(uint256 proposalId) internal {
+        // Fund the tx voters so each can forward the per-vote Inco fee on the fork (voter-pays model).
+        vm.deal(voter4, incoFee);
+        vm.deal(voter5, incoFee);
+        vm.deal(voter6, incoFee);
         {
             bytes memory encryptedChoice = fakePrepareEuint256Ciphertext(1, voter4, address(space));
             vm.prank(voter4);
-            ethTxAuth.authenticate(
-                address(space),
-                VOTE_SELECTOR,
-                abi.encode(voter4, proposalId, encryptedChoice, userVotingStrategies, "")
-            );
+            ethTxAuth.authenticate{ value: incoFee }(address(space), VOTE_SELECTOR, abi.encode(voter4, proposalId, encryptedChoice, userVotingStrategies, ""));
             processAllOperations();
         }
         {
             bytes memory encryptedChoice = fakePrepareEuint256Ciphertext(1, voter5, address(space));
             vm.prank(voter5);
-            ethTxAuth.authenticate(
-                address(space),
-                VOTE_SELECTOR,
-                abi.encode(voter5, proposalId, encryptedChoice, userVotingStrategies, "")
-            );
+            ethTxAuth.authenticate{ value: incoFee }(address(space), VOTE_SELECTOR, abi.encode(voter5, proposalId, encryptedChoice, userVotingStrategies, ""));
             processAllOperations();
         }
         {
             bytes memory encryptedChoice = fakePrepareEuint256Ciphertext(1, voter6, address(space));
             string memory meta = "bafkreibv2yjocyotgj2n6awe5z7vqxrzyo72t2ml2ijgj4fgktfpyukuv4";
             vm.prank(voter6);
-            ethTxAuth.authenticate(
-                address(space),
-                VOTE_SELECTOR,
-                abi.encode(voter6, proposalId, encryptedChoice, userVotingStrategies, meta)
-            );
+            ethTxAuth.authenticate{ value: incoFee }(address(space), VOTE_SELECTOR, abi.encode(voter6, proposalId, encryptedChoice, userVotingStrategies, meta));
             processAllOperations();
         }
     }

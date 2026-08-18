@@ -60,7 +60,7 @@ contract OptimisticTest is SpaceTest {
 
         _tryExecute(proposalId, executionStrategy.params);
 
-        assertEq(uint8(space.getProposalStatus(proposalId)), uint8(ProposalStatus.Accepted));
+        assertEq(uint8(space.getProposalStatus(proposalId)), uint8(ProposalStatus.Executed));
     }
 
     function testOptimisticQuorumOneVote() public {
@@ -70,7 +70,7 @@ contract OptimisticTest is SpaceTest {
 
         _tryExecute(proposalId, executionStrategy.params);
 
-        assertEq(uint8(space.getProposalStatus(proposalId)), uint8(ProposalStatus.Accepted));
+        assertEq(uint8(space.getProposalStatus(proposalId)), uint8(ProposalStatus.Executed));
     }
 
     function testOptimisticQuorumReached() public {
@@ -80,7 +80,7 @@ contract OptimisticTest is SpaceTest {
         vm.roll(vm.getBlockNumber() + space.maxVotingDuration());
 
         _tryExecute(proposalId, executionStrategy.params);
-        assertEq(uint8(space.getProposalStatus(proposalId)), uint8(ProposalStatus.Accepted));
+        assertEq(uint8(space.getProposalStatus(proposalId)), uint8(ProposalStatus.Executed));
     }
 
     function testOptimisticQuorumEquality() public {
@@ -107,8 +107,9 @@ contract OptimisticTest is SpaceTest {
         vm.roll(vm.getBlockNumber() + space.minVotingDuration());
 
         _tryExecute(proposalId, executionStrategy.params);
-        assertTrue(uint8(space.getProposalStatus(proposalId)) != uint8(ProposalStatus.Executed));
-        assertEq(uint8(space.getProposalStatus(proposalId)), uint8(ProposalStatus.VotingPeriodAccepted));
+        // Against votes don't trip the optimistic rejection flag (for+abstain < quorum), so the
+        // proposal is accepted and executes.
+        assertEq(uint8(space.getProposalStatus(proposalId)), uint8(ProposalStatus.Executed));
     }
 
     function testOptimisticQuorumMinVotingPeriodAccepted() public {
@@ -118,7 +119,8 @@ contract OptimisticTest is SpaceTest {
 
         _tryExecute(proposalId, executionStrategy.params);
 
-        assertEq(uint8(space.getProposalStatus(proposalId)), uint8(ProposalStatus.VotingPeriodAccepted));
+        // No rejection votes; the optimistic proposal is accepted and executes.
+        assertEq(uint8(space.getProposalStatus(proposalId)), uint8(ProposalStatus.Executed));
     }
 
     function testOptimisticQuorumLotsOfVotes() public {
@@ -163,11 +165,10 @@ contract OptimisticTest is SpaceTest {
         _vote(address(42), proposalId, 0, userVotingStrategies, voteMetadataURI);
         vm.roll(vm.getBlockNumber() + space.maxVotingDuration());
 
-        // vm.expectEmit(true, true, true, true);
-        // emit ProposalExecuted(proposalId);
         _tryExecute(proposalId, executionStrategy.params);
 
-        assertEq(uint8(space.getProposalStatus(proposalId)), uint8(ProposalStatus.Accepted));
+        // The new (higher) rejection quorum isn't met by 2 against votes, so the proposal executes.
+        assertEq(uint8(space.getProposalStatus(proposalId)), uint8(ProposalStatus.Executed));
     }
 
     function testOptimisticQuorumSetQuorumUnauthorized() public {

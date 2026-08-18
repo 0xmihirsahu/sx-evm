@@ -201,7 +201,7 @@ contract EthSigAuthenticatorTest is SpaceTest, SigUtils {
         );
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(VOTER_KEY, digest);
 
-        ethSigAuth.authenticate(
+        ethSigAuth.authenticate{ value: incoFee }(
             v,
             r,
             s,
@@ -287,7 +287,7 @@ contract EthSigAuthenticatorTest is SpaceTest, SigUtils {
         );
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(VOTER_KEY, digest);
 
-        ethSigAuth.authenticate(
+        ethSigAuth.authenticate{ value: incoFee }(
             v,
             r,
             s,
@@ -299,7 +299,7 @@ contract EthSigAuthenticatorTest is SpaceTest, SigUtils {
         _processAllOperations();
 
         vm.expectRevert(UserAlreadyVoted.selector);
-        ethSigAuth.authenticate(
+        ethSigAuth.authenticate{ value: incoFee }(
             v,
             r,
             s,
