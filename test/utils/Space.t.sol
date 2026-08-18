@@ -16,11 +16,10 @@ import {
 import { ISpaceEvents } from "../../src/interfaces/space/ISpaceEvents.sol";
 import { ISpaceErrors } from "../../src/interfaces/space/ISpaceErrors.sol";
 import { IExecutionStrategyErrors } from "../../src/interfaces/execution-strategies/IExecutionStrategyErrors.sol";
-import { Strategy, IndexedStrategy, InitializeCalldata, TRUE, FALSE } from "../../src/types.sol";
+import { Strategy, IndexedStrategy, InitializeCalldata, TallyDecryption, TRUE, FALSE } from "../../src/types.sol";
 
 // Inco imports for test helpers
 import { euint256, inco } from "@inco/lightning/src/Lib.sol";
-import { DecryptionAttestation } from "@inco/lightning/src/lightning-parts/DecryptionAttester.types.sol";
 import { AllowanceProof } from "@inco/lightning/src/lightning-parts/AccessControl/AdvancedAccessControl.types.sol";
 
 // solhint-disable-next-line max-states-count
@@ -92,10 +91,13 @@ abstract contract SpaceTest is IncoTest, GasSnapshot, ISpaceEvents, ISpaceErrors
 
     // Empty proof for decryption attestation requests
     AllowanceProof internal emptyProof;
+    // Cached Inco fee (per vote), forwarded with each vote under the voter-pays model.
+    uint256 internal incoFee;
 
     function setUp() public virtual override {
         super.setUp(); // REQUIRED: deploys mocked Inco infra
         vm.stopPrank(); // IncoTest.setUp() leaves a startPrank active
+        incoFee = inco.getFee();
 
         masterSpace = new Space();
 
@@ -142,8 +144,10 @@ abstract contract SpaceTest is IncoTest, GasSnapshot, ISpaceEvents, ISpaceErrors
             )
         );
 
-        // Fund the space for Inco confidential compute fees
+        // Fund the space (used by withdraw tests) and the relayer/sponsor (which forwards the
+        // per-vote Inco fee when submitting signature-authenticated votes under the voter-pays model).
         vm.deal(address(space), 10 ether);
+        vm.deal(address(this), 100 ether);
         // Discard setup logs; tests should process only logs emitted during test actions.
         vm.recordLogs();
     }
@@ -169,7 +173,8 @@ abstract contract SpaceTest is IncoTest, GasSnapshot, ISpaceEvents, ISpaceErrors
         return space.nextProposalId() - 1;
     }
 
-    /// @dev Casts an encrypted vote. choiceValue: 0=Against, 1=For, 2=Abstain
+    /// @dev Casts an encrypted vote. choiceValue: 0=Against, 1=For, 2=Abstain.
+    ///      Forwards incoFee with the call so Space.vote()'s msg.value >= getFee() check passes (voter-pays model).
     function _vote(
         address _voter,
         uint256 _proposalId,
@@ -177,8 +182,14 @@ abstract contract SpaceTest is IncoTest, GasSnapshot, ISpaceEvents, ISpaceErrors
         IndexedStrategy[] memory _userVotingStrategies,
         string memory _voteMetadataURI
     ) internal {
-        bytes memory ciphertext = fakePrepareEuint256Ciphertext(_choiceValue, _voter, address(space));
-        vanillaAuthenticator.authenticate(
+        bytes memory ciphertext = fakePrepareEuint256Ciphertext(
+            _choiceValue,
+            _voter,
+            address(space)
+        );
+        vm.deal(_voter, _voter.balance + incoFee);
+        vm.prank(_voter);
+        vanillaAuthenticator.authenticate{ value: incoFee }(
             address(space),
             VOTE_SELECTOR,
             abi.encode(_voter, _proposalId, ciphertext, _userVotingStrategies, _voteMetadataURI)
@@ -186,76 +197,99 @@ abstract contract SpaceTest is IncoTest, GasSnapshot, ISpaceEvents, ISpaceErrors
         _processAllOperations();
     }
 
-    /// @dev Executes a proposal via tryExecute with mock attestations.
-    function _prepareTryExecuteAttestations(
-        uint256 _proposalId
-    )
-        internal
-        returns (
-            DecryptionAttestation memory qAttest,
-            bytes[] memory qSigs,
-            DecryptionAttestation memory sAttest,
-            bytes[] memory sSigs
-        )
-    {
-        _processAllOperations();
-
-        bytes32 qHandleRaw = euint256.unwrap(space.encryptedIsQuorumReached(_proposalId));
-        bytes32 sHandleRaw = euint256.unwrap(space.encryptedIsSupportAchieved(_proposalId));
-
-        HandleWithProof memory qHandle = HandleWithProof({ handle: qHandleRaw, proof: emptyProof });
-        HandleWithProof memory sHandle = HandleWithProof({ handle: sHandleRaw, proof: emptyProof });
-
-        (qAttest, qSigs) = getDecryptionAttestation(address(space), qHandle);
-        (sAttest, sSigs) = getDecryptionAttestation(address(space), sHandle);
+    /// @dev Requests reveal and submits attested decryptions of all three tallies.
+    ///      Assumes the caller has already rolled past maxEndBlockNumber.
+    function _reveal(uint256 _proposalId) internal {
+        _rollPastMaxEnd(_proposalId); // reveal is only valid after the voting period ends
+        _processAllOperations(); // ensure tallies are computed in the mock KV
+        space.requestReveal(_proposalId);
+        space.finalizeReveal(_proposalId, _prepareTallies(_proposalId));
     }
 
-    /// @dev Executes a proposal via tryExecute with mock attestations.
-    function _tryExecute(uint256 _proposalId, bytes memory _payload) internal {
-        (
-            DecryptionAttestation memory qAttest,
-            bytes[] memory qSigs,
-            DecryptionAttestation memory sAttest,
-            bytes[] memory sSigs
-        ) = _prepareTryExecuteAttestations(_proposalId);
-
-        space.tryExecute(_proposalId, _payload, qAttest, qSigs, sAttest, sSigs);
-    }
-
-    function _tryExecuteExpectRevert(uint256 _proposalId, bytes memory _payload, bytes memory _revertData) internal {
-        (
-            DecryptionAttestation memory qAttest,
-            bytes[] memory qSigs,
-            DecryptionAttestation memory sAttest,
-            bytes[] memory sSigs
-        ) = _prepareTryExecuteAttestations(_proposalId);
-        vm.expectRevert(_revertData);
-        space.tryExecute(_proposalId, _payload, qAttest, qSigs, sAttest, sSigs);
-    }
-
-    function _tryExecuteExpectAnyRevert(uint256 _proposalId, bytes memory _payload) internal {
-        (
-            DecryptionAttestation memory qAttest,
-            bytes[] memory qSigs,
-            DecryptionAttestation memory sAttest,
-            bytes[] memory sSigs
-        ) = _prepareTryExecuteAttestations(_proposalId);
-        vm.expectRevert();
-        space.tryExecute(_proposalId, _payload, qAttest, qSigs, sAttest, sSigs);
-    }
-
-    function _tryExecuteInvalidProposalExpectRevert(
+    /// @dev Reveals while asserting the ProposalResultRevealed event (expectEmit anchored to finalizeReveal,
+    ///      after requestReveal has already emitted RevealRequested).
+    function _revealExpectingResult(
         uint256 _proposalId,
-        bytes memory _payload,
-        bytes memory _revertData
+        uint256 _against,
+        uint256 _for,
+        uint256 _abstain,
+        bool _passed
     ) internal {
-        DecryptionAttestation memory emptyAttestation = DecryptionAttestation({
-            handle: bytes32(0),
-            value: bytes32(0)
-        });
-        bytes[] memory noSigs = new bytes[](0);
+        _processAllOperations();
+        space.requestReveal(_proposalId);
+        TallyDecryption[3] memory tallies = _prepareTallies(_proposalId);
+        vm.expectEmit(true, true, true, true);
+        emit ProposalResultRevealed(_proposalId, _against, _for, _abstain, _passed);
+        space.finalizeReveal(_proposalId, tallies);
+    }
+
+    /// @dev Builds attested decryptions for a proposal's three tally handles (requester = address(this)).
+    ///      Indexed 0=Against, 1=For, 2=Abstain to match the contract.
+    function _prepareTallies(uint256 _proposalId) internal returns (TallyDecryption[3] memory tallies) {
+        (euint256 againstH, euint256 forH, euint256 abstainH) = space.getVoteTallyHandles(_proposalId);
+        tallies[0] = _attest(againstH);
+        tallies[1] = _attest(forH);
+        tallies[2] = _attest(abstainH);
+    }
+
+    /// @dev Produces an attested decryption for a single tally handle (requester = address(this)).
+    function _attest(euint256 _handle) internal returns (TallyDecryption memory td) {
+        (td.attestation, td.signatures) = getDecryptionAttestation(
+            address(this), HandleWithProof({ handle: euint256.unwrap(_handle), proof: emptyProof })
+        );
+    }
+
+    /// @dev Re-prepares attestations and asserts a second finalizeReveal reverts AlreadyRevealed.
+    function _finalizeRevealAgainExpectAlreadyRevealed(uint256 _proposalId) internal {
+        TallyDecryption[3] memory tallies = _prepareTallies(_proposalId);
+        vm.expectRevert(AlreadyRevealed.selector);
+        space.finalizeReveal(_proposalId, tallies);
+    }
+
+    /// @dev Builds the array with For/Against swapped (mismatched handles) to assert the handle check.
+    function _finalizeRevealSwappedExpectMismatch(uint256 _proposalId) internal {
+        (euint256 againstH, euint256 forH, euint256 abstainH) = space.getVoteTallyHandles(_proposalId);
+        TallyDecryption[3] memory tallies;
+        tallies[0] = _attest(forH); // For's attestation placed in the Against slot -> mismatch
+        tallies[1] = _attest(againstH);
+        tallies[2] = _attest(abstainH);
+        vm.expectRevert("Tally handle mismatch");
+        space.finalizeReveal(_proposalId, tallies);
+    }
+
+    /// @dev Submits a finalizeReveal with empty (zero-initialized) attestations for pre-voting-end gate tests.
+    function _finalizeRevealEmpty(uint256 _proposalId) internal {
+        TallyDecryption[3] memory tallies;
+        space.finalizeReveal(_proposalId, tallies);
+    }
+
+    /// @dev Legacy helper: reveals then executes iff the proposal passed (mirrors old tryExecute semantics).
+    ///      Assumes the caller has already rolled past maxEndBlockNumber.
+    /// @dev Rolls to just past a proposal's maxEndBlockNumber if not already there (no-op if already past).
+    function _rollPastMaxEnd(uint256 _proposalId) internal {
+        (, , , , uint32 maxEnd, , , ) = space.proposals(_proposalId);
+        if (block.number < maxEnd) vm.roll(uint256(maxEnd) + 1);
+    }
+
+    function _tryExecute(uint256 _proposalId, bytes memory _payload) internal {
+        _reveal(_proposalId);
+        (, , , bool passed) = space.result(_proposalId);
+        if (passed) space.execute(_proposalId, _payload);
+    }
+
+    /// @dev Legacy helper: reveals, then expects execute() to revert with the given data.
+    ///      Assumes the caller has already rolled past maxEndBlockNumber and the proposal passed.
+    function _tryExecuteExpectRevert(uint256 _proposalId, bytes memory _payload, bytes memory _revertData) internal {
+        _reveal(_proposalId);
         vm.expectRevert(_revertData);
-        space.tryExecute(_proposalId, _payload, emptyAttestation, noSigs, emptyAttestation, noSigs);
+        space.execute(_proposalId, _payload);
+    }
+
+    /// @dev Legacy helper: reveals, then expects execute() to revert for any reason.
+    function _tryExecuteExpectAnyRevert(uint256 _proposalId, bytes memory _payload) internal {
+        _reveal(_proposalId);
+        vm.expectRevert();
+        space.execute(_proposalId, _payload);
     }
 
     function _expectOnlyOwnerRevert(address caller) internal {

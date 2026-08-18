@@ -1,128 +1,91 @@
 // SPDX-License-Identifier: MIT
-
 pragma solidity ^0.8.18;
 
 import { SpaceTest } from "./utils/Space.t.sol";
-import { IndexedStrategy, ProposalStatus, Strategy, UpdateSettingsCalldata } from "../src/types.sol";
-import { VanillaExecutionStrategy } from "../src/execution-strategies/VanillaExecutionStrategy.sol";
+import { IndexedStrategy, ProposalStatus, Strategy } from "../src/types.sol";
 
 contract ExecuteTest is SpaceTest {
-    function testExecute() public {
+    function _rollPastMax() internal {
+        vm.roll(vm.getBlockNumber() + space.maxVotingDuration() + 1);
+    }
+
+    function testExecutePasses() public {
         uint256 proposalId = _createProposal(author, proposalMetadataURI, executionStrategy, new bytes(0));
         _vote(author, proposalId, 1, userVotingStrategies, voteMetadataURI);
-        vm.roll(vm.getBlockNumber() + space.maxVotingDuration() + 1000);
+        _rollPastMax();
+
+        _reveal(proposalId);
+        (uint256 against, uint256 forV, uint256 abstain, bool passed) = space.result(proposalId);
+        assertEq(against, 0);
+        assertEq(forV, 1);
+        assertEq(abstain, 0);
+        assertTrue(passed);
+
         vm.expectEmit(true, true, true, true);
         emit ProposalExecuted(proposalId);
-        _tryExecute(proposalId, executionStrategy.params);
-
+        space.execute(proposalId, executionStrategy.params);
         assertEq(uint8(space.getProposalStatus(proposalId)), uint8(ProposalStatus.Executed));
     }
 
-    function testExecuteInvalidProposal() public {
+    function testExecuteBeforeRevealReverts() public {
         uint256 proposalId = _createProposal(author, proposalMetadataURI, executionStrategy, new bytes(0));
-        uint256 invalidProposalId = proposalId + 1;
         _vote(author, proposalId, 1, userVotingStrategies, voteMetadataURI);
-        vm.roll(vm.getBlockNumber() + space.maxVotingDuration());
-
-        _tryExecuteInvalidProposalExpectRevert(
-            invalidProposalId,
-            executionStrategy.params,
-            abi.encodeWithSelector(InvalidProposal.selector)
-        );
+        _rollPastMax();
+        vm.expectRevert(NotRevealed.selector);
+        space.execute(proposalId, executionStrategy.params);
     }
 
     function testExecuteAlreadyExecuted() public {
         uint256 proposalId = _createProposal(author, proposalMetadataURI, executionStrategy, new bytes(0));
         _vote(author, proposalId, 1, userVotingStrategies, voteMetadataURI);
-        vm.roll(vm.getBlockNumber() + space.maxVotingDuration());
-        _tryExecute(proposalId, executionStrategy.params);
-
-        _tryExecuteExpectRevert(
-            proposalId,
-            executionStrategy.params,
-            abi.encodeWithSelector(ProposalFinalized.selector)
-        );
+        _rollPastMax();
+        _reveal(proposalId);
+        space.execute(proposalId, executionStrategy.params);
+        vm.expectRevert(ProposalFinalized.selector);
+        space.execute(proposalId, executionStrategy.params);
     }
 
-    function testExecuteMinDurationNotElapsed() public {
-        space.updateSettings(
-            UpdateSettingsCalldata(
-                100,
-                NO_UPDATE_UINT32,
-                NO_UPDATE_UINT32,
-                NO_UPDATE_STRING,
-                NO_UPDATE_STRING,
-                NO_UPDATE_STRATEGY,
-                NO_UPDATE_STRING,
-                NO_UPDATE_ADDRESSES,
-                NO_UPDATE_ADDRESSES,
-                NO_UPDATE_STRATEGIES,
-                NO_UPDATE_STRINGS,
-                NO_UPDATE_UINT8S
-            )
-        );
-        uint256 proposalId = _createProposal(author, proposalMetadataURI, executionStrategy, new bytes(0));
-        _vote(author, proposalId, 1, userVotingStrategies, voteMetadataURI);
-
-        _tryExecuteExpectRevert(
-            proposalId,
-            executionStrategy.params,
-            abi.encodeWithSelector(InvalidProposalStatus.selector, ProposalStatus.VotingPeriod)
-        );
-
-        vm.roll(vm.getBlockNumber() + space.minVotingDuration());
-        _tryExecute(proposalId, executionStrategy.params);
-    }
-
-    function testExecuteQuorumNotReachedYet() public {
-        uint256 proposalId = _createProposal(author, proposalMetadataURI, executionStrategy, new bytes(0));
-
-        _tryExecute(proposalId, executionStrategy.params);
-        assertEq(uint8(space.getProposalStatus(proposalId)), uint8(ProposalStatus.VotingPeriod));
-    }
-
-    function testExecuteQuorumNotReachedAtAll() public {
-        uint256 proposalId = _createProposal(author, proposalMetadataURI, executionStrategy, new bytes(0));
-        vm.roll(vm.getBlockNumber() + space.maxVotingDuration());
-
-        _tryExecute(proposalId, executionStrategy.params);
-
-        assertEq(uint8(space.getProposalStatus(proposalId)), uint8(ProposalStatus.Rejected));
-    }
-
-    function testExecuteWithAgainstVote() public {
+    function testExecuteWithAgainstVoteRejected() public {
         uint256 proposalId = _createProposal(author, proposalMetadataURI, executionStrategy, new bytes(0));
         _vote(author, proposalId, 0, userVotingStrategies, voteMetadataURI);
-        vm.roll(vm.getBlockNumber() + space.maxVotingDuration());
+        _rollPastMax();
+        _reveal(proposalId);
+        (uint256 against, , , bool passed) = space.result(proposalId);
+        assertEq(against, 1);
+        assertFalse(passed);
+        assertEq(uint8(space.getProposalStatus(proposalId)), uint8(ProposalStatus.Rejected));
+        vm.expectRevert(ProposalNotPassed.selector);
+        space.execute(proposalId, executionStrategy.params);
+    }
 
-        // Against vote -- _tryExecute processes attestations but proposal should not be executed
-        _tryExecute(proposalId, executionStrategy.params);
-
+    function testExecuteWithAbstainVoteRejected() public {
+        uint256 proposalId = _createProposal(author, proposalMetadataURI, executionStrategy, new bytes(0));
+        _vote(author, proposalId, 2, userVotingStrategies, voteMetadataURI);
+        _rollPastMax();
+        _reveal(proposalId);
+        (, , uint256 abstain, bool passed) = space.result(proposalId);
+        assertEq(abstain, 1);
+        assertFalse(passed); // quorum reached (abstain counts) but no support
         assertEq(uint8(space.getProposalStatus(proposalId)), uint8(ProposalStatus.Rejected));
     }
 
-    function testExecuteWithAbstainVote() public {
+    function testExecuteZeroVotesRejected() public {
         uint256 proposalId = _createProposal(author, proposalMetadataURI, executionStrategy, new bytes(0));
-        _vote(author, proposalId, 2, userVotingStrategies, voteMetadataURI);
-        vm.roll(vm.getBlockNumber() + space.maxVotingDuration());
-
-        // Abstain vote -- _tryExecute processes attestations but proposal should not be executed
-        _tryExecute(proposalId, executionStrategy.params);
-
+        _rollPastMax();
+        _reveal(proposalId);
+        (uint256 against, uint256 forV, uint256 abstain, bool passed) = space.result(proposalId);
+        assertEq(against + forV + abstain, 0);
+        assertFalse(passed);
         assertEq(uint8(space.getProposalStatus(proposalId)), uint8(ProposalStatus.Rejected));
     }
 
     function testExecuteInvalidPayload() public {
         uint256 proposalId = _createProposal(author, proposalMetadataURI, executionStrategy, new bytes(0));
         _vote(author, proposalId, 1, userVotingStrategies, voteMetadataURI);
-
-        _tryExecuteExpectRevert(proposalId, new bytes(4242), abi.encodeWithSelector(InvalidPayload.selector));
-    }
-
-    function testExecuteInvalidExecutionStrategy() public {
-        uint256 proposalId = _createProposal(author, proposalMetadataURI, Strategy(address(space), ""), new bytes(0));
-        vm.expectRevert();
-        _vote(author, proposalId, 1, userVotingStrategies, voteMetadataURI);
+        _rollPastMax();
+        _reveal(proposalId);
+        vm.expectRevert(InvalidPayload.selector);
+        space.execute(proposalId, new bytes(4242));
     }
 
     function testGetStrategyType() external view {

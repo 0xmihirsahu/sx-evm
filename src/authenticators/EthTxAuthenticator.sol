@@ -14,17 +14,19 @@ contract EthTxAuthenticator is Authenticator {
     /// @param target The target Space contract address.
     /// @param functionSelector The function selector of the function to be called.
     /// @param data The calldata of the function to be called.
-    function authenticate(address target, bytes4 functionSelector, bytes calldata data) external {
+    function authenticate(address target, bytes4 functionSelector, bytes calldata data) external payable {
         if (functionSelector == PROPOSE_SELECTOR) {
             _verifyPropose(data);
+            _call(target, functionSelector, data);
         } else if (functionSelector == VOTE_SELECTOR) {
             _verifyVote(data);
+            _callWithValue(target, functionSelector, data, msg.value);
         } else if (functionSelector == UPDATE_PROPOSAL_SELECTOR) {
             _verifyUpdateProposal(data);
+            _call(target, functionSelector, data);
         } else {
             revert InvalidFunctionSelector();
         }
-        _call(target, functionSelector, data);
     }
 
     /// @dev Verifies a proposal creation transaction.

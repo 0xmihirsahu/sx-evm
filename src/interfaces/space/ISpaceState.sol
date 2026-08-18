@@ -2,7 +2,7 @@
 
 pragma solidity ^0.8.18;
 
-import { Proposal, ProposalStatus, FinalizationStatus, Strategy } from "src/types.sol";
+import { Proposal, ProposalStatus, FinalizationStatus, Strategy, ProposalResult } from "src/types.sol";
 import { IExecutionStrategy } from "src/interfaces/IExecutionStrategy.sol";
 import { euint256 } from "@inco/lightning/src/Types.sol";
 
@@ -42,27 +42,31 @@ interface ISpaceState {
     /// @return params The parameters of the proposal validation strategy.
     function proposalValidationStrategy() external view returns (address addr, bytes memory params);
 
-    /// @notice Encrypted quorum flag handle for off-chain attested decryption.
+    /// @notice Whether a proposal's result has been revealed and locked.
     /// @param proposalId The ID of the proposal.
-    function encryptedIsQuorumReached(uint256 proposalId) external view returns (euint256);
+    function revealed(uint256 proposalId) external view returns (bool);
 
-    /// @notice Encrypted support flag handle for off-chain attested decryption.
+    /// @notice The revealed cleartext result of a proposal (zeros until finalized).
     /// @param proposalId The ID of the proposal.
-    function encryptedIsSupportAchieved(uint256 proposalId) external view returns (euint256);
+    function result(uint256 proposalId)
+        external
+        view
+        returns (uint256 againstVotes, uint256 forVotes, uint256 abstainVotes, bool passed);
 
-    /// @notice Decrypted quorum result, set after tryExecute().
+    /// @notice Decrypted quorum result, set after finalizeReveal().
     /// @param proposalId The ID of the proposal.
     function isQuorumReached(uint256 proposalId) external view returns (bool);
 
-    /// @notice Decrypted support result, set after tryExecute().
+    /// @notice Decrypted support result, set after finalizeReveal().
     /// @param proposalId The ID of the proposal.
     function isSupportAchieved(uint256 proposalId) external view returns (bool);
 
-    /// @notice Returns both encrypted handles for off-chain attested decryption.
+    /// @notice Returns the encrypted vote tally handles for off-chain decryption after voting ends.
     /// @param proposalId The ID of the proposal.
-    function getQuorumAndSupportHandles(
-        uint256 proposalId
-    ) external view returns (euint256 quorumHandle, euint256 supportHandle);
+    function getVoteTallyHandles(uint256 proposalId)
+        external
+        view
+        returns (euint256 againstHandle, euint256 forHandle, euint256 abstainHandle);
 
     /// @notice Returns whether a voter has voted on a proposal.
     /// @param proposalId The ID of the proposal.

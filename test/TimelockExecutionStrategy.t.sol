@@ -75,9 +75,10 @@ abstract contract TimelockExecutionStrategyTest is SpaceTest {
         _vote(author, proposalId, 1, userVotingStrategies, voteMetadataURI);
         vm.roll(vm.getBlockNumber() + space.maxVotingDuration());
 
+        _reveal(proposalId);
         vm.expectEmit(true, true, true, true);
         emit TransactionQueued(transactions[0], block.timestamp + 1000);
-        _tryExecute(proposalId, abi.encode(transactions));
+        space.execute(proposalId, abi.encode(transactions));
     }
 
     function testQueueingFailedProposal() external {
@@ -108,11 +109,13 @@ abstract contract TimelockExecutionStrategyTest is SpaceTest {
         _vote(author, proposalId, 1, userVotingStrategies, voteMetadataURI);
         vm.roll(vm.getBlockNumber() + space.maxVotingDuration());
 
+        _reveal(proposalId);
         vm.expectEmit(true, true, true, true);
         emit TransactionQueued(transactions[0], block.timestamp + 1000);
-        _tryExecute(proposalId, abi.encode(transactions));
+        space.execute(proposalId, abi.encode(transactions));
 
-        _tryExecuteExpectAnyRevert(proposalId, abi.encode(transactions));
+        vm.expectRevert();
+        space.execute(proposalId, abi.encode(transactions));
     }
 
     function testQueueingQueueDuplicate() external {
@@ -138,9 +141,7 @@ abstract contract TimelockExecutionStrategyTest is SpaceTest {
 
         // Will revert due to duplicate execution payload hash
         _tryExecuteExpectRevert(
-            proposalId2,
-            abi.encode(transactions),
-            abi.encodeWithSelector(DuplicateExecutionPayloadHash.selector)
+            proposalId2, abi.encode(transactions), abi.encodeWithSelector(DuplicateExecutionPayloadHash.selector)
         );
     }
 
@@ -200,9 +201,10 @@ abstract contract TimelockExecutionStrategyTest is SpaceTest {
         _vote(author, proposalId, 1, userVotingStrategies, voteMetadataURI);
         vm.roll(vm.getBlockNumber() + space.maxVotingDuration());
 
+        _reveal(proposalId);
         vm.expectEmit(true, true, true, true);
         emit TransactionQueued(transactions[0], block.timestamp + 1000);
-        _tryExecute(proposalId, abi.encode(transactions));
+        space.execute(proposalId, abi.encode(transactions));
 
         assertEq(recipient.balance, 0);
 
@@ -265,9 +267,10 @@ abstract contract TimelockExecutionStrategyTest is SpaceTest {
         _vote(author, proposalId, 1, userVotingStrategies, voteMetadataURI);
         vm.roll(vm.getBlockNumber() + space.maxVotingDuration());
 
+        _reveal(proposalId);
         vm.expectEmit(true, true, true, true);
         emit TransactionQueued(transactions[0], block.timestamp + 1000);
-        _tryExecute(proposalId, abi.encode(transactions));
+        space.execute(proposalId, abi.encode(transactions));
 
         vm.expectRevert(TimelockDelayNotMet.selector);
         timelockExecutionStrategy.executeQueuedProposal(abi.encode(transactions));
@@ -301,9 +304,10 @@ abstract contract TimelockExecutionStrategyTest is SpaceTest {
         _vote(author, proposalId, 1, userVotingStrategies, voteMetadataURI);
         vm.roll(vm.getBlockNumber() + space.maxVotingDuration());
 
+        _reveal(proposalId);
         vm.expectEmit(true, true, true, true);
         emit TransactionQueued(transactions[0], block.timestamp + 1000);
-        _tryExecute(proposalId, abi.encode(transactions));
+        space.execute(proposalId, abi.encode(transactions));
 
         assertEq(recipient.balance, 0);
 
@@ -334,9 +338,10 @@ abstract contract TimelockExecutionStrategyTest is SpaceTest {
         _vote(author, proposalId, 1, userVotingStrategies, voteMetadataURI);
         vm.roll(vm.getBlockNumber() + space.maxVotingDuration());
 
+        _reveal(proposalId);
         vm.expectEmit(true, true, true, true);
         emit TransactionQueued(transactions[0], block.timestamp + 1000);
-        _tryExecute(proposalId, abi.encode(transactions));
+        space.execute(proposalId, abi.encode(transactions));
 
         assertEq(recipient.balance, 0);
 
@@ -487,9 +492,10 @@ abstract contract TimelockExecutionStrategyTest is SpaceTest {
         _vote(author, proposalId, 1, userVotingStrategies, voteMetadataURI);
         vm.roll(vm.getBlockNumber() + space.maxVotingDuration());
 
+        _reveal(proposalId);
         vm.expectEmit(true, true, true, true);
         emit TransactionQueued(transactions[0], block.timestamp + 1000);
-        _tryExecute(proposalId, abi.encode(transactions));
+        space.execute(proposalId, abi.encode(transactions));
 
         assertEq(erc721.ownerOf(1), address(timelockExecutionStrategy));
         assertEq(erc1155.balanceOf(author, 1), 0);

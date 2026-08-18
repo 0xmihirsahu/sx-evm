@@ -13,6 +13,8 @@ import {
     IndexedStrategy,
     Proposal,
     ProposalStatus,
+    ProposalResult,
+    TallyDecryption,
     Strategy,
     UpdateSettingsCalldata,
     InitializeCalldata,
@@ -28,7 +30,6 @@ import { BitPacker } from "./utils/BitPacker.sol";
 // Inco imports
 import { euint256, ebool, e, inco } from "@inco/lightning/src/Lib.sol";
 import { DecryptionAttestation } from "@inco/lightning/src/lightning-parts/DecryptionAttester.types.sol";
-import { asBool } from "@inco/lightning/src/shared/TypeUtils.sol";
 
 /// @title Space Contract
 /// @notice The core contract for Snapshot X with Inco confidential voting.
@@ -82,9 +83,10 @@ contract Space is ISpace, Initializable, IERC4824, UUPSUpgradeable, OwnableUpgra
     mapping(uint256 proposalId => mapping(uint8 choice => euint256)) private votePower;
 
     /// @inheritdoc ISpaceState
-    mapping(uint256 proposalId => euint256) public override encryptedIsQuorumReached;
+    mapping(uint256 proposalId => bool) public override revealed;
+
     /// @inheritdoc ISpaceState
-    mapping(uint256 proposalId => euint256) public override encryptedIsSupportAchieved;
+    mapping(uint256 proposalId => ProposalResult) public override result;
 
     /// @inheritdoc ISpaceState
     mapping(uint256 proposalId => bool) public override isQuorumReached;
@@ -96,6 +98,12 @@ contract Space is ISpace, Initializable, IERC4824, UUPSUpgradeable, OwnableUpgra
 
     /// @dev Explicit funding entrypoint.
     function fund() external payable {}
+
+    /// @dev Allows the owner to reclaim the space's Inco fee float.
+    function withdraw(address payable to, uint256 amount) external onlyOwner nonReentrant {
+        (bool ok, ) = to.call{ value: amount }("");
+        if (!ok) revert WithdrawFailed();
+    }
 
     /// @inheritdoc ISpaceActions
     function initialize(InitializeCalldata calldata input) external override initializer {
@@ -215,10 +223,13 @@ contract Space is ISpace, Initializable, IERC4824, UUPSUpgradeable, OwnableUpgra
     }
 
     /// @inheritdoc ISpaceState
-    function getQuorumAndSupportHandles(
-        uint256 proposalId
-    ) external view override returns (euint256 quorumHandle, euint256 supportHandle) {
-        return (encryptedIsQuorumReached[proposalId], encryptedIsSupportAchieved[proposalId]);
+    function getVoteTallyHandles(uint256 proposalId)
+        external
+        view
+        override
+        returns (euint256 againstHandle, euint256 forHandle, euint256 abstainHandle)
+    {
+        return (votePower[proposalId][0], votePower[proposalId][1], votePower[proposalId][2]);
     }
 
     // ------------------------------------
@@ -261,19 +272,14 @@ contract Space is ISpace, Initializable, IERC4824, UUPSUpgradeable, OwnableUpgra
 
         proposals[nextProposalId] = proposal;
 
-        // Initialize quorum/support encrypted handles to "false" so tryExecute can attest
-        // even before any vote is cast.
-        euint256 initialQuorum = e.asEuint256(0);
-        initialQuorum.allowThis();
-        initialQuorum.allow(msg.sender);
-        initialQuorum.allow(author);
-        encryptedIsQuorumReached[nextProposalId] = initialQuorum;
-
-        euint256 initialSupport = e.asEuint256(0);
-        initialSupport.allowThis();
-        initialSupport.allow(msg.sender);
-        initialSupport.allow(author);
-        encryptedIsSupportAchieved[nextProposalId] = initialSupport;
+        // Initialize the three encrypted vote tallies to encrypted-zero so the handles always
+        // exist and are revealable even if the proposal receives zero votes.
+        // Trivial-encrypt (asEuint256) does not incur an Inco fee.
+        for (uint8 choice = 0; choice < 3; choice++) {
+            euint256 zero = e.asEuint256(0);
+            zero.allowThis();
+            votePower[nextProposalId][choice] = zero;
+        }
 
         emit ProposalCreated(nextProposalId, author, proposal, metadataURI, executionStrategy.params);
 
@@ -287,7 +293,9 @@ contract Space is ISpace, Initializable, IERC4824, UUPSUpgradeable, OwnableUpgra
         bytes calldata ciphertext,
         IndexedStrategy[] calldata userVotingStrategies,
         string calldata metadataURI
-    ) external override onlyAuthenticator {
+    ) external payable override onlyAuthenticator {
+        // Voter-pays: the caller must forward at least the Inco fee that newEuint256() spends below.
+        if (msg.value < inco.getFee()) revert InsufficientIncoFee();
         Proposal memory proposal = proposals[proposalId];
         _assertProposalExists(proposal);
         if (block.number >= proposal.maxEndBlockNumber) revert VotingPeriodHasEnded();
@@ -305,66 +313,32 @@ contract Space is ISpace, Initializable, IERC4824, UUPSUpgradeable, OwnableUpgra
         );
         if (votingPower == 0) revert UserHasNoVotingPower();
 
-        // --- CONFIDENTIAL SECTION: Process encrypted vote ---
+        // --- CONFIDENTIAL SECTION: accumulate encrypted tallies only ---
 
-        // 1. Create encrypted handle from the user's ciphertext
+        // The only Inco-fee-charging op per vote: ingest the encrypted choice.
         bytes memory ciphertextMem = ciphertext;
         euint256 userChoice = ciphertextMem.newEuint256(voter);
 
-        // 2. Determine which bucket this vote goes to (all comparisons are encrypted)
         ebool isAgainst = userChoice.eq(uint256(0));
         ebool isFor = userChoice.eq(uint256(1));
         ebool isAbstain = userChoice.eq(uint256(2));
 
-        // 3. Encrypt the voting power
         euint256 encryptedPower = e.asEuint256(votingPower);
 
-        // 4. Conditionally add power to each bucket using select (encrypted ternary)
-
-        // Against votes (index 0)
-        euint256 existingAgainst = _getOrZero(proposalId, 0);
-        euint256 newAgainst = isAgainst.select(existingAgainst.add(encryptedPower), existingAgainst);
+        // Against (0)
+        euint256 newAgainst = isAgainst.select(votePower[proposalId][0].add(encryptedPower), votePower[proposalId][0]);
         newAgainst.allowThis();
-        newAgainst.allow(msg.sender);
         votePower[proposalId][0] = newAgainst;
 
-        // For votes (index 1)
-        euint256 existingFor = _getOrZero(proposalId, 1);
-        euint256 newFor = isFor.select(existingFor.add(encryptedPower), existingFor);
+        // For (1)
+        euint256 newFor = isFor.select(votePower[proposalId][1].add(encryptedPower), votePower[proposalId][1]);
         newFor.allowThis();
-        newFor.allow(msg.sender);
         votePower[proposalId][1] = newFor;
 
-        // Abstain votes (index 2)
-        euint256 existingAbstain = _getOrZero(proposalId, 2);
-        euint256 newAbstain = isAbstain.select(existingAbstain.add(encryptedPower), existingAbstain);
+        // Abstain (2)
+        euint256 newAbstain = isAbstain.select(votePower[proposalId][2].add(encryptedPower), votePower[proposalId][2]);
         newAbstain.allowThis();
-        newAbstain.allow(msg.sender);
         votePower[proposalId][2] = newAbstain;
-
-        // 5. Compute encrypted quorum and support flags
-        uint256 quorumValue = proposal.executionStrategy.getQuorum();
-        ebool quorumReachedFlag = newFor.add(newAbstain).ge(quorumValue);
-        ebool supportAchievedFlag = newFor.gt(newAgainst);
-
-        // 6. Store encrypted results as euint256 (cast from ebool)
-        euint256 encQuorum = e.asEuint256(quorumReachedFlag);
-        euint256 encSupport = e.asEuint256(supportAchievedFlag);
-
-        encQuorum.allowThis();
-        encQuorum.allow(msg.sender);
-        encQuorum.allow(proposal.author);
-        encryptedIsQuorumReached[proposalId] = encQuorum;
-
-        encSupport.allowThis();
-        encSupport.allow(msg.sender);
-        encSupport.allow(proposal.author);
-        encryptedIsSupportAchieved[proposalId] = encSupport;
-
-        // 7. Grant execution strategy access to vote tallies
-        newAgainst.allow(address(proposal.executionStrategy));
-        newFor.allow(address(proposal.executionStrategy));
-        newAbstain.allow(address(proposal.executionStrategy));
 
         // --- END CONFIDENTIAL SECTION ---
 
@@ -376,50 +350,75 @@ contract Space is ISpace, Initializable, IERC4824, UUPSUpgradeable, OwnableUpgra
     }
 
     /// @inheritdoc ISpaceActions
-    function tryExecute(
-        uint256 proposalId,
-        bytes calldata executionPayload,
-        DecryptionAttestation memory quorumAttestation,
-        bytes[] memory quorumSignatures,
-        DecryptionAttestation memory supportAttestation,
-        bytes[] memory supportSignatures
-    ) external override {
+    function requestReveal(uint256 proposalId) external override {
         Proposal storage proposal = proposals[proposalId];
         _assertProposalExists(proposal);
         if (proposal.finalizationStatus != FinalizationStatus.Pending) revert ProposalFinalized();
+        if (block.number < proposal.maxEndBlockNumber) revert VotingPeriodNotEnded();
+        if (revealed[proposalId]) revert AlreadyRevealed();
 
-        // 1. Verify covalidator signatures on both attestations
+        // Grant the caller off-chain decryption access to the final (frozen) tallies.
+        // Safe: voting has ended, so this cannot leak a running result.
+        votePower[proposalId][0].allow(msg.sender);
+        votePower[proposalId][1].allow(msg.sender);
+        votePower[proposalId][2].allow(msg.sender);
+
+        emit RevealRequested(proposalId, msg.sender);
+    }
+
+    /// @inheritdoc ISpaceActions
+    function finalizeReveal(uint256 proposalId, TallyDecryption[3] memory tallies) external override {
+        Proposal storage proposal = proposals[proposalId];
+        _assertProposalExists(proposal);
+        if (proposal.finalizationStatus != FinalizationStatus.Pending) revert ProposalFinalized();
+        if (block.number < proposal.maxEndBlockNumber) revert VotingPeriodNotEnded();
+        if (revealed[proposalId]) revert AlreadyRevealed();
+
+        uint256 againstVotes = _verifyTally(proposalId, 0, tallies[0].attestation, tallies[0].signatures);
+        uint256 forVotes = _verifyTally(proposalId, 1, tallies[1].attestation, tallies[1].signatures);
+        uint256 abstainVotes = _verifyTally(proposalId, 2, tallies[2].attestation, tallies[2].signatures);
+
+        uint256 quorumValue = proposal.executionStrategy.getQuorum();
+        bool quorumReached = (forVotes + abstainVotes) >= quorumValue;
+        bool supportAchieved = forVotes > againstVotes;
+
+        isQuorumReached[proposalId] = quorumReached;
+        isSupportAchieved[proposalId] = supportAchieved;
+
+        // Let the execution strategy decide acceptance — Simple and Optimistic quorum interpret the
+        // same (quorumReached, supportAchieved) flags differently. Voting has ended here, so the
+        // strategy returns a final Accepted/Rejected status.
+        ProposalStatus status = proposal.executionStrategy.getProposalStatus(proposal, quorumReached, supportAchieved);
+        bool passed = status == ProposalStatus.Accepted || status == ProposalStatus.VotingPeriodAccepted;
+        result[proposalId] = ProposalResult(againstVotes, forVotes, abstainVotes, passed);
+        revealed[proposalId] = true;
+
+        emit ProposalResultRevealed(proposalId, againstVotes, forVotes, abstainVotes, passed);
+    }
+
+    /// @inheritdoc ISpaceActions
+    function execute(uint256 proposalId, bytes calldata executionPayload) external override {
+        if (!revealed[proposalId]) revert NotRevealed();
+        if (!result[proposalId].passed) revert ProposalNotPassed();
+        _execute(proposalId, executionPayload);
+    }
+
+    /// @dev Verifies an attested decryption of a vote tally handle and returns the cleartext count.
+    function _verifyTally(
+        uint256 proposalId,
+        uint8 choice,
+        DecryptionAttestation memory attestation,
+        bytes[] memory signatures
+    ) internal view returns (uint256) {
         require(
-            inco.incoVerifier().isValidDecryptionAttestation(quorumAttestation, quorumSignatures),
-            "Invalid quorum attestation"
+            inco.incoVerifier().isValidDecryptionAttestation(attestation, signatures),
+            "Invalid tally attestation"
         );
         require(
-            inco.incoVerifier().isValidDecryptionAttestation(supportAttestation, supportSignatures),
-            "Invalid support attestation"
+            euint256.unwrap(votePower[proposalId][choice]) == attestation.handle,
+            "Tally handle mismatch"
         );
-
-        // 2. Verify the attestation handles match our stored encrypted values
-        require(
-            euint256.unwrap(encryptedIsQuorumReached[proposalId]) == quorumAttestation.handle,
-            "Quorum handle mismatch"
-        );
-        require(
-            euint256.unwrap(encryptedIsSupportAchieved[proposalId]) == supportAttestation.handle,
-            "Support handle mismatch"
-        );
-
-        // 3. Extract decrypted boolean results
-        bool quorumPassed = asBool(quorumAttestation.value);
-        bool supportPassed = asBool(supportAttestation.value);
-
-        // 4. Store the decrypted results
-        isQuorumReached[proposalId] = quorumPassed;
-        isSupportAchieved[proposalId] = supportPassed;
-
-        // 5. Execute if both conditions are met
-        if (quorumPassed && supportPassed) {
-            _execute(proposalId, executionPayload);
-        }
+        return uint256(attestation.value);
     }
 
     /// @inheritdoc ISpaceOwnerActions
@@ -548,16 +547,6 @@ contract Space is ISpace, Initializable, IERC4824, UUPSUpgradeable, OwnableUpgra
     /// @dev Reverts if a specified proposal does not exist.
     function _assertProposalExists(Proposal memory proposal) internal pure {
         if (proposal.executionPayloadHash == 0) revert InvalidProposal();
-    }
-
-    /// @dev Returns existing encrypted vote tally or zero if not yet initialized.
-    function _getOrZero(uint256 proposalId, uint8 choice) internal returns (euint256) {
-        if (euint256.unwrap(votePower[proposalId][choice]) == bytes32(0)) {
-            euint256 zero = e.asEuint256(0);
-            zero.allowThis();
-            return zero;
-        }
-        return votePower[proposalId][choice];
     }
 
     /// @dev Returns the cumulative voting power of a user over a set of voting strategies.

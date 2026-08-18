@@ -92,9 +92,10 @@ abstract contract CompTimelockExecutionStrategyTest is SpaceTest {
         _vote(author, proposalId, 1, userVotingStrategies, voteMetadataURI);
         vm.roll(vm.getBlockNumber() + space.maxVotingDuration());
 
+        _reveal(proposalId);
         vm.expectEmit(true, true, true, true);
         emit TransactionQueued(transactions[0], block.timestamp + 1000);
-        _tryExecute(proposalId, abi.encode(transactions));
+        space.execute(proposalId, abi.encode(transactions));
     }
 
     function testQueueingDuplicateMetaTransaction() external {
@@ -112,9 +113,7 @@ abstract contract CompTimelockExecutionStrategyTest is SpaceTest {
         vm.roll(vm.getBlockNumber() + space.maxVotingDuration());
 
         _tryExecuteExpectRevert(
-            proposalId,
-            abi.encode(transactions),
-            abi.encodeWithSelector(DuplicateMetaTransaction.selector)
+            proposalId, abi.encode(transactions), abi.encodeWithSelector(DuplicateMetaTransaction.selector)
         );
     }
 
@@ -152,9 +151,7 @@ abstract contract CompTimelockExecutionStrategyTest is SpaceTest {
 
         // Ensure an error is thrown for the second proposal!
         _tryExecuteExpectRevert(
-            secondProposalId,
-            abi.encode(duplicateTransactions),
-            abi.encodeWithSelector(DuplicateMetaTransaction.selector)
+            secondProposalId, abi.encode(duplicateTransactions), abi.encodeWithSelector(DuplicateMetaTransaction.selector)
         );
     }
 
@@ -186,15 +183,13 @@ abstract contract CompTimelockExecutionStrategyTest is SpaceTest {
         _vote(author, proposalId, 1, userVotingStrategies, voteMetadataURI);
         vm.roll(vm.getBlockNumber() + space.maxVotingDuration());
 
+        _reveal(proposalId);
         vm.expectEmit(true, true, true, true);
         emit TransactionQueued(transactions[0], block.timestamp + 1000);
-        _tryExecute(proposalId, abi.encode(transactions));
+        space.execute(proposalId, abi.encode(transactions));
 
-        _tryExecuteExpectRevert(
-            proposalId,
-            abi.encode(transactions),
-            abi.encodeWithSelector(ProposalFinalized.selector)
-        );
+        vm.expectRevert(abi.encodeWithSelector(ProposalFinalized.selector));
+        space.execute(proposalId, abi.encode(transactions));
     }
 
     function testQueueingQueueDuplicate() external {
@@ -220,9 +215,7 @@ abstract contract CompTimelockExecutionStrategyTest is SpaceTest {
 
         // Will revert due to duplicate execution payload hash
         _tryExecuteExpectRevert(
-            proposalId2,
-            abi.encode(transactions),
-            abi.encodeWithSelector(DuplicateExecutionPayloadHash.selector)
+            proposalId2, abi.encode(transactions), abi.encodeWithSelector(DuplicateExecutionPayloadHash.selector)
         );
     }
 
@@ -255,9 +248,10 @@ abstract contract CompTimelockExecutionStrategyTest is SpaceTest {
         _vote(author, proposalId, 1, userVotingStrategies, voteMetadataURI);
         vm.roll(vm.getBlockNumber() + space.maxVotingDuration());
 
+        _reveal(proposalId);
         vm.expectEmit(true, true, true, true);
         emit TransactionQueued(transactions[0], block.timestamp + 1000);
-        _tryExecute(proposalId, abi.encode(transactions));
+        space.execute(proposalId, abi.encode(transactions));
 
         assertEq(recipient.balance, 0);
 
@@ -320,9 +314,10 @@ abstract contract CompTimelockExecutionStrategyTest is SpaceTest {
         _vote(author, proposalId, 1, userVotingStrategies, voteMetadataURI);
         vm.roll(vm.getBlockNumber() + space.maxVotingDuration());
 
+        _reveal(proposalId);
         vm.expectEmit(true, true, true, true);
         emit TransactionQueued(transactions[0], block.timestamp + 1000);
-        _tryExecute(proposalId, abi.encode(transactions));
+        space.execute(proposalId, abi.encode(transactions));
 
         vm.expectRevert(TimelockDelayNotMet.selector);
         timelockExecutionStrategy.executeQueuedProposal(abi.encode(transactions));
@@ -356,9 +351,10 @@ abstract contract CompTimelockExecutionStrategyTest is SpaceTest {
         _vote(author, proposalId, 1, userVotingStrategies, voteMetadataURI);
         vm.roll(vm.getBlockNumber() + space.maxVotingDuration());
 
+        _reveal(proposalId);
         vm.expectEmit(true, true, true, true);
         emit TransactionQueued(transactions[0], block.timestamp + 1000);
-        _tryExecute(proposalId, abi.encode(transactions));
+        space.execute(proposalId, abi.encode(transactions));
 
         assertEq(recipient.balance, 0);
 
@@ -390,9 +386,7 @@ abstract contract CompTimelockExecutionStrategyTest is SpaceTest {
         vm.roll(vm.getBlockNumber() + space.maxVotingDuration());
 
         _tryExecuteExpectRevert(
-            proposalId,
-            abi.encode(transactions),
-            abi.encodeWithSelector(InvalidTransaction.selector)
+            proposalId, abi.encode(transactions), abi.encodeWithSelector(InvalidTransaction.selector)
         );
     }
 
@@ -502,9 +496,10 @@ abstract contract CompTimelockExecutionStrategyTest is SpaceTest {
         _vote(author, proposalId, 1, userVotingStrategies, voteMetadataURI);
         vm.roll(vm.getBlockNumber() + space.maxVotingDuration());
 
+        _reveal(proposalId);
         vm.expectEmit(true, true, true, true);
         emit TransactionQueued(transactions[0], block.timestamp + 1000);
-        _tryExecute(proposalId, abi.encode(transactions));
+        space.execute(proposalId, abi.encode(transactions));
 
         assertEq(erc721.ownerOf(1), address(timelock));
 

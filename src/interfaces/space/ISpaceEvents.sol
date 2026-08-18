@@ -29,7 +29,12 @@ interface ISpaceEvents {
     /// @param voter The address of the voter.
     /// @param votingPower The voting power of the voter.
     /// @param metadataUri The metadata URI for the vote.
-    event VoteCastWithMetadata(uint256 proposalId, address voter, uint256 votingPower, string metadataUri);
+    event VoteCastWithMetadata(
+        uint256 proposalId,
+        address voter,
+        uint256 votingPower,
+        string metadataUri
+    );
 
     /// @notice Emitted when a proposal is executed.
     /// @param proposalId The proposal id.
@@ -93,4 +98,23 @@ interface ISpaceEvents {
     ///        consisting of a strategy address and an execution payload array.
     /// @param newMetadataURI The metadata URI for the proposal.
     event ProposalUpdated(uint256 proposalId, Strategy newExecutionStrategy, string newMetadataURI);
+
+    /// @notice Emitted when an account requests decryption access to a proposal's final tallies.
+    /// @param proposalId The proposal id.
+    /// @param revealer The account granted decrypt access to the tallies.
+    event RevealRequested(uint256 proposalId, address revealer);
+
+    /// @notice Emitted when a proposal's cleartext result is finalized on-chain.
+    /// @param proposalId The proposal id.
+    /// @param againstVotes The total Against voting power.
+    /// @param forVotes The total For voting power.
+    /// @param abstainVotes The total Abstain voting power.
+    /// @param passed Whether the proposal reached quorum and achieved support.
+    event ProposalResultRevealed(
+        uint256 proposalId,
+        uint256 againstVotes,
+        uint256 forVotes,
+        uint256 abstainVotes,
+        bool passed
+    );
 }

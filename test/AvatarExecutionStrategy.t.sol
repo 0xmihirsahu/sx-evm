@@ -5,7 +5,15 @@ pragma solidity ^0.8.18;
 import { SpaceTest } from "./utils/Space.t.sol";
 import { Avatar } from "./mocks/Avatar.sol";
 import { AvatarExecutionStrategy } from "../src/execution-strategies/AvatarExecutionStrategy.sol";
-import { Enum, IndexedStrategy, MetaTransaction, ProposalStatus, Strategy, TRUE, FALSE } from "../src/types.sol";
+import {
+    Enum,
+    IndexedStrategy,
+    MetaTransaction,
+    ProposalStatus,
+    Strategy,
+    TRUE,
+    FALSE
+} from "../src/types.sol";
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 abstract contract AvatarExecutionStrategyTest is SpaceTest {
@@ -40,9 +48,10 @@ abstract contract AvatarExecutionStrategyTest is SpaceTest {
         _vote(author, proposalId, 1, userVotingStrategies, voteMetadataURI);
         vm.roll(vm.getBlockNumber() + space.maxVotingDuration());
 
+        _reveal(proposalId);
         vm.expectEmit(true, true, true, true);
         emit ProposalExecuted(proposalId);
-        _tryExecute(proposalId, abi.encode(transactions));
+        space.execute(proposalId, abi.encode(transactions));
 
         // recipient should have received 1 wei
         assertEq(recipient.balance, 1);

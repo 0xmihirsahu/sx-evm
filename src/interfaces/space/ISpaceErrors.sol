@@ -59,4 +59,22 @@ interface ISpaceErrors {
     /// @notice Thrown when the execution payload supplied to the execution strategy is not equal
     /// to the payload supplied when the proposal was created.
     error InvalidPayload();
+
+    /// @notice Thrown when reveal/finalize is attempted before the voting period has ended.
+    error VotingPeriodNotEnded();
+
+    /// @notice Thrown when a proposal result has already been revealed.
+    error AlreadyRevealed();
+
+    /// @notice Thrown when execute is attempted before the result has been revealed.
+    error NotRevealed();
+
+    /// @notice Thrown when execute is attempted on a proposal that did not pass.
+    error ProposalNotPassed();
+
+    /// @notice Thrown when an owner withdrawal of the fee float fails.
+    error WithdrawFailed();
+
+    /// @notice Thrown when a vote does not forward enough ETH to cover the Inco confidential-compute fee.
+    error InsufficientIncoFee();
 }
